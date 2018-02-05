@@ -155,8 +155,6 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 			if err := s.HandleDisconnectMsg(client); err != nil {
 				return err
 			}
-		default:
-			fmt.Println(t.Name.Local)
 		}
 	}
 
