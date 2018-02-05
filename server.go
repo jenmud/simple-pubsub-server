@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -63,7 +64,7 @@ func (s *Server) Broadcast(msg []byte) {
 	s.BroadcastChann <- msg
 }
 
-func (s *Server) SendPing(replyChan chan<- []byte) error {
+func (s *Server) HandlePingMsg(replyChan chan<- []byte) error {
 	pong := messages.Pong{
 		Tick: fmt.Sprint("%s", time.Now()),
 	}
@@ -77,34 +78,134 @@ func (s *Server) SendPing(replyChan chan<- []byte) error {
 	return nil
 }
 
-func (s *Server) HandleMessage(client *Client, msg []byte) error {
+func (s *Server) HandleConnectMsg(client *Client, msg []byte) error {
+	var err error
 	var connMsg messages.Connect
 
-	switch {
-	case xml.Unmarshal(msg, &connMsg) == nil:
-		client.ID = connMsg.ID
-		client.Name = connMsg.Name
-
-		if err := s.AddClient(client); err != nil {
-			return err
-		}
-
-		welcomeMsg := messages.Welcome{Name: connMsg.Name, Datetime: time.Now().String()}
-		welcomeMsgBytes, err := xml.Marshal(welcomeMsg)
-		if err != nil {
-			log.Printf("(Client: %s) Welcome MSG marshal error: %s", client.Address(), err)
-			return err
-		}
-
-		if err := client.Send(welcomeMsgBytes); err != nil {
-			log.Printf("(Client: %s) Send welcome MSG error: %s", client.Address(), err)
-			return err
-		}
-	default:
-		return nil
+	if err := xml.Unmarshal(msg, &connMsg); err != nil {
+		return err
 	}
 
-	return nil
+	client.ID = connMsg.ID
+	client.Name = connMsg.Name
+
+	if err := s.AddClient(client); err != nil {
+		return err
+	}
+
+	welcomeMsg := messages.Welcome{Name: connMsg.Name, Address: client.Address(), Datetime: time.Now().String()}
+	welcomeMsgBytes, err := xml.Marshal(welcomeMsg)
+	if err != nil {
+		log.Printf("(Client: %s) Welcome MSG marshal error: %s", client.Address(), err)
+		return err
+	}
+
+	if err := client.Send(welcomeMsgBytes); err != nil {
+		log.Printf("(Client: %s) Send welcome MSG error: %s", client.Address(), err)
+		return err
+	}
+
+	return err
+}
+
+func (s *Server) HandleDisconnectMsg(client *Client) error {
+	log.Printf("Client requested to disconnect, removing %s", client.Address())
+	var err error
+
+	disconnectTime := fmt.Sprintf("%s", time.Now())
+	err = s.RemoveClient(client)
+	if err != nil {
+		return err
+	}
+
+	output, err := xml.Marshal(messages.Bye{Tick: disconnectTime})
+	if err != nil {
+		return err
+	}
+
+	err = client.Send(output)
+	if err != nil {
+		return err
+	}
+
+	client.Done <- true
+	return err
+}
+
+func (s *Server) Dispatch(client *Client, msg []byte) error {
+	var err error
+	decoder := xml.NewDecoder(bytes.NewReader(msg))
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+
+	switch t := token.(type) {
+	case xml.StartElement:
+		switch t.Name.Local {
+		case "connect":
+			if err := s.HandleConnectMsg(client, msg); err != nil {
+				return err
+			}
+		case "ping":
+			if err := s.HandlePingMsg(client.BroadcastChann); err != nil {
+				return err
+			}
+		case "disconnect":
+			if err := s.HandleDisconnectMsg(client); err != nil {
+				return err
+			}
+		default:
+			fmt.Println(t.Name.Local)
+		}
+	}
+
+	return err
+}
+
+func (s *Server) HandleMessage(client *Client, msg []byte) error {
+	var err error
+
+	err = s.Dispatch(client, msg)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	/*
+		var connMsg messages.Connect
+		var pingMsg messages.Ping
+
+			switch {
+			case xml.Unmarshal(msg, &connMsg) == nil:
+				client.ID = connMsg.ID
+				client.Name = connMsg.Name
+
+				if err := s.AddClient(client); err != nil {
+					return err
+				}
+
+				welcomeMsg := messages.Welcome{Name: connMsg.Name, Address: client.Address(), Datetime: time.Now().String()}
+				welcomeMsgBytes, err := xml.Marshal(welcomeMsg)
+				if err != nil {
+					log.Printf("(Client: %s) Welcome MSG marshal error: %s", client.Address(), err)
+					return err
+				}
+
+				if err := client.Send(welcomeMsgBytes); err != nil {
+					log.Printf("(Client: %s) Send welcome MSG error: %s", client.Address(), err)
+					return err
+				}
+			case xml.Unmarshal(msg, &pingMsg) == nil:
+				if err := s.SendPong(client.BroadcastChann); err != nil {
+					log.Printf("(Client: %s) Send pong MSG error: %s", client.Address(), err)
+					return err
+				}
+			default:
+				return nil
+			}
+
+	*/
+	return err
 }
 
 func (s *Server) HandleConnection(client *Client) {
