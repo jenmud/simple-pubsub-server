@@ -5,8 +5,9 @@ import (
 	"net"
 )
 
-func NewClient() *Client {
+func NewClient(conn net.Conn) *Client {
 	return &Client{
+		conn:           conn,
 		BroadcastChann: make(chan []byte),
 		Done:           make(chan bool),
 	}

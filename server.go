@@ -51,11 +51,9 @@ func (s *Server) RemoveClient(client *Client) error {
 
 func (s *Server) HandleBroadcasts() {
 	for {
-		select {
-		case msg := <-s.BroadcastChann:
-			for c := range s.Clients {
-				s.Clients[c].BroadcastChann <- msg
-			}
+		msg := <-s.BroadcastChann
+		for c := range s.Clients {
+			s.Clients[c].BroadcastChann <- msg
 		}
 	}
 }
@@ -134,12 +132,16 @@ func (s *Server) HandleDisconnectMsg(client *Client) error {
 
 func (s *Server) Dispatch(client *Client, msg []byte) error {
 	var err error
+
 	decoder := xml.NewDecoder(bytes.NewReader(msg))
 	token, err := decoder.Token()
 	if err != nil {
 		return err
 	}
 
+	// This should have a low overhead as we are not parsing the entire
+	// message, but only dealing with the first token. NOTE: this is only
+	// a theory and not tested!
 	switch t := token.(type) {
 	case xml.StartElement:
 		switch t.Name.Local {
@@ -161,64 +163,19 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 	return err
 }
 
-func (s *Server) HandleMessage(client *Client, msg []byte) error {
-	var err error
-
-	err = s.Dispatch(client, msg)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	/*
-		var connMsg messages.Connect
-		var pingMsg messages.Ping
-
-			switch {
-			case xml.Unmarshal(msg, &connMsg) == nil:
-				client.ID = connMsg.ID
-				client.Name = connMsg.Name
-
-				if err := s.AddClient(client); err != nil {
-					return err
-				}
-
-				welcomeMsg := messages.Welcome{Name: connMsg.Name, Address: client.Address(), Datetime: time.Now().String()}
-				welcomeMsgBytes, err := xml.Marshal(welcomeMsg)
-				if err != nil {
-					log.Printf("(Client: %s) Welcome MSG marshal error: %s", client.Address(), err)
-					return err
-				}
-
-				if err := client.Send(welcomeMsgBytes); err != nil {
-					log.Printf("(Client: %s) Send welcome MSG error: %s", client.Address(), err)
-					return err
-				}
-			case xml.Unmarshal(msg, &pingMsg) == nil:
-				if err := s.SendPong(client.BroadcastChann); err != nil {
-					log.Printf("(Client: %s) Send pong MSG error: %s", client.Address(), err)
-					return err
-				}
-			default:
-				return nil
-			}
-
-	*/
-	return err
-}
-
-func (s *Server) HandleConnection(client *Client) {
+func (s *Server) HandleClientConnection(client *Client) {
 	defer s.RemoveClient(client)
 	log.Printf("New client connection from %s", client.Address())
 
 	for {
-		input, err := client.Read('\n')
+		msg, err := client.Read('\n')
 		if err != nil {
 			log.Printf("(Client: %s) Read error: %s", client.Address(), err)
 			return
 		}
 
 		go client.ListenForBroadcasts()
-		if err := s.HandleMessage(client, input); err != nil {
+		if err := s.Dispatch(client, msg); err != nil {
 			log.Printf("(Client: %s) Message parsing error: %s", client.Address(), err)
 			return
 		}
@@ -267,9 +224,6 @@ func (s *Server) ListenAndAccept(port int) error {
 		log.Printf("Client connection accepted %s", conn.RemoteAddr().String())
 		defer conn.Close()
 
-		client := NewClient()
-		client.conn = conn
-
-		go s.HandleConnection(client)
+		go s.HandleClientConnection(NewClient(conn))
 	}
 }
