@@ -17,7 +17,7 @@ func NewServer() *Server {
 	server := Server{
 		Clients:        make(map[string]*Client),
 		BroadcastChann: make(chan []byte),
-		Topics:         make(map[string][]chan<- string),
+		Topics:         make(map[string][]chan<- []byte),
 	}
 
 	return &server
@@ -26,7 +26,7 @@ func NewServer() *Server {
 type Server struct {
 	Clients        map[string]*Client
 	BroadcastChann chan []byte
-	Topics         map[string][]chan<- string
+	Topics         map[string][]chan<- []byte
 }
 
 func (s *Server) AddClient(client *Client) error {
@@ -47,6 +47,34 @@ func (s *Server) RemoveClient(client *Client) error {
 	delete(s.Clients, name)
 	log.Printf("Registered clients %d", len(s.Clients))
 	return nil
+}
+
+func (s *Server) CreateTopic(name string) error {
+	var err error
+
+	if _, ok := s.Topics[name]; !ok {
+		log.Printf("Creating new topic %q", name)
+		s.Topics[name] = []chan<- []byte{}
+	}
+
+	return err
+}
+
+func (s *Server) SubscribeToTopic(topicName string, chann chan<- []byte) error {
+	var err error
+
+	// Make sure the topic exists
+	if err := s.CreateTopic(topicName); err != nil {
+		return err
+	}
+
+	s.Topics[topicName] = append(s.Topics[topicName], chann)
+	return err
+}
+
+func (s *Server) HasConnected(client *Client) bool {
+	_, ok := s.Clients[client.Address()]
+	return ok
 }
 
 func (s *Server) HandleBroadcasts() {
@@ -106,6 +134,46 @@ func (s *Server) HandleConnectMsg(client *Client, msg []byte) error {
 	return err
 }
 
+func (s *Server) HandleSubscribeMsg(client *Client, msg []byte) error {
+	var err error
+	var subscribe messages.Subscribe
+
+	if !s.HasConnected(client) {
+		err = messages.NotConnected{
+			Tick:    fmt.Sprintf("%s", time.Now()),
+			Message: "Not connected, please first connect.",
+		}
+		output, err := xml.Marshal(err)
+		if err != nil {
+			return err
+		}
+
+		return client.Send(output)
+	}
+
+	if err := xml.Unmarshal(msg, &subscribe); err != nil {
+		return err
+	}
+
+	if subscribe.Topic != "" {
+		topicChan := client.Subscribe(subscribe.Topic)
+		s.SubscribeToTopic(subscribe.Topic, topicChan)
+	}
+
+	return err
+}
+
+func (s *Server) HandlePublishMsg(client *Client, msg []byte) error {
+	var err error
+	var publish messages.Publish
+
+	if err := xml.Unmarshal(msg, &publish); err != nil {
+		return err
+	}
+
+	return err
+}
+
 func (s *Server) HandleDisconnectMsg(client *Client) error {
 	log.Printf("Client requested to disconnect, removing %s", client.Address())
 	var err error
@@ -151,6 +219,14 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 			}
 		case "ping":
 			if err := s.HandlePingMsg(client.BroadcastChann); err != nil {
+				return err
+			}
+		case "subscribe":
+			if err := s.HandleSubscribeMsg(client, msg); err != nil {
+				return err
+			}
+		case "publish":
+			if err := s.HandlePublishMsg(client, msg); err != nil {
 				return err
 			}
 		case "disconnect":
