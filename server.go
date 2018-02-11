@@ -17,7 +17,7 @@ func NewServer() *Server {
 	server := Server{
 		Clients:        make(map[string]*Client),
 		BroadcastChann: make(chan []byte),
-		Topics:         make(map[string][]chan<- []byte),
+		Topics:         make(map[string]*Topic),
 	}
 
 	return &server
@@ -26,7 +26,7 @@ func NewServer() *Server {
 type Server struct {
 	Clients        map[string]*Client
 	BroadcastChann chan []byte
-	Topics         map[string][]chan<- []byte
+	Topics         map[string]*Topic
 }
 
 func (s *Server) AddClient(client *Client) error {
@@ -47,29 +47,6 @@ func (s *Server) RemoveClient(client *Client) error {
 	delete(s.Clients, name)
 	log.Printf("Registered clients %d", len(s.Clients))
 	return nil
-}
-
-func (s *Server) CreateTopic(name string) error {
-	var err error
-
-	if _, ok := s.Topics[name]; !ok {
-		log.Printf("Creating new topic %q", name)
-		s.Topics[name] = []chan<- []byte{}
-	}
-
-	return err
-}
-
-func (s *Server) SubscribeToTopic(topicName string, chann chan<- []byte) error {
-	var err error
-
-	// Make sure the topic exists
-	if err := s.CreateTopic(topicName); err != nil {
-		return err
-	}
-
-	s.Topics[topicName] = append(s.Topics[topicName], chann)
-	return err
 }
 
 func (s *Server) HasConnected(client *Client) bool {
@@ -156,8 +133,23 @@ func (s *Server) HandleSubscribeMsg(client *Client, msg []byte) error {
 	}
 
 	if subscribe.Topic != "" {
-		topicChan := client.Subscribe(subscribe.Topic)
-		s.SubscribeToTopic(subscribe.Topic, topicChan)
+		topic, ok := s.Topics[subscribe.Topic]
+
+		if !ok {
+			err = messages.NoPublishers{
+				Tick:    fmt.Sprintf("%s", time.Now()),
+				Message: fmt.Sprintf("There are no publishers for topic %s", subscribe.Topic),
+			}
+
+			output, err := xml.Marshal(err)
+			if err != nil {
+				return err
+			}
+
+			return client.Send(output)
+		}
+
+		topic.Subscribe(client)
 	}
 
 	return err
@@ -165,10 +157,30 @@ func (s *Server) HandleSubscribeMsg(client *Client, msg []byte) error {
 
 func (s *Server) HandlePublishMsg(client *Client, msg []byte) error {
 	var err error
-	var publish messages.Publish
+	var publishMsg messages.Publish
 
-	if err := xml.Unmarshal(msg, &publish); err != nil {
-		return err
+	if err := xml.Unmarshal(msg, &publishMsg); err != nil {
+
+		// Check if we already have a client publishing to the topic
+		if topic, ok := s.Topics[publishMsg.Topic]; !ok {
+			msg := fmt.Sprintf("Topic %s is already being published by client %s", topic.Name, topic.Publisher.Address())
+			output, err := xml.Marshal(
+				messages.AlreadyBeingPublished{
+					Tick:    fmt.Sprintf("%s", time.Now()),
+					Message: msg,
+				},
+			)
+
+			if err != nil {
+				return err
+			}
+
+			return client.Send(output)
+		}
+		This is not working!!!!!!
+		// Create a topic and make the client the publisher
+		topic := NewTopic(publishMsg.Topic, client)
+		return topic.SubscribePublisher(client)
 	}
 
 	return err
@@ -250,7 +262,6 @@ func (s *Server) HandleClientConnection(client *Client) {
 			return
 		}
 
-		go client.ListenForBroadcasts()
 		if err := s.Dispatch(client, msg); err != nil {
 			log.Printf("(Client: %s) Message parsing error: %s", client.Address(), err)
 			return

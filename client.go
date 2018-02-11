@@ -2,17 +2,18 @@ package main
 
 import (
 	"bufio"
-	"log"
 	"net"
 )
 
 func NewClient(conn net.Conn) *Client {
-	return &Client{
+	c := &Client{
 		conn:           conn,
 		BroadcastChann: make(chan []byte),
 		Done:           make(chan bool),
-		Topics:         make(map[string]chan []byte),
 	}
+
+	go c.ListenForBroadcasts()
+	return c
 }
 
 type Client struct {
@@ -21,7 +22,6 @@ type Client struct {
 	Done           chan bool
 	Name           string
 	ID             string
-	Topics         map[string]chan []byte
 }
 
 func (c *Client) Address() string {
@@ -48,27 +48,4 @@ func (c *Client) Read(delim byte) ([]byte, error) {
 func (c *Client) Send(msg []byte) error {
 	_, err := c.conn.Write(msg)
 	return err
-}
-
-func (c *Client) Subscribe(topicName string) chan<- []byte {
-	topicHandler := func(topicChan chan []byte) {
-		log.Printf("Client %q subscribed and listening to %q for messages", c.Address(), topicName)
-		for {
-			msg := <-topicChan
-			c.Send(msg)
-		}
-	}
-
-	if _, ok := c.Topics[topicName]; !ok {
-		topicChan := make(chan []byte)
-		c.Topics[topicName] = topicChan
-		go topicHandler(topicChan)
-		return topicChan
-	}
-
-	return c.Topics[topicName]
-}
-
-func (c *Client) Unsubscribe(topicName string) {
-	delete(c.Topics, topicName)
 }
