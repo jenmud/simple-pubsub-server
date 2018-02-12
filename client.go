@@ -2,7 +2,11 @@ package main
 
 import (
 	"bufio"
+	"encoding/xml"
+	"fmt"
+	"gitlab.com/jenmud/myBetex/messages"
 	"net"
+	"time"
 )
 
 func NewClient(conn net.Conn) *Client {
@@ -48,4 +52,19 @@ func (c *Client) Read(delim byte) ([]byte, error) {
 func (c *Client) Send(msg []byte) error {
 	_, err := c.conn.Write(msg)
 	return err
+}
+
+func (c *Client) SendError(errType, msg string) error {
+	errMsg := messages.Error{
+		Type:    errType,
+		Tick:    fmt.Sprintf("%s", time.Now()),
+		Message: msg,
+	}
+
+	output, err := xml.Marshal(errMsg)
+	if err != nil {
+		return err
+	}
+
+	return c.Send(output)
 }

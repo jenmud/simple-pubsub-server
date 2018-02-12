@@ -1,10 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"gitlab.com/jenmud/myBetex/messages"
 	"log"
-	"time"
 )
 
 func NewTopic(name string, publisher *Client) *Topic {
@@ -25,19 +22,6 @@ func (t *Topic) Publish(msg []byte) {
 	for _, client := range t.Subscribers {
 		client.BroadcastChann <- msg
 	}
-}
-
-func (t *Topic) SubscribePublisher(client *Client) error {
-	if t.Publisher != nil {
-		return messages.NoPublishers{
-			Tick:    fmt.Sprint("%s", time.Now()),
-			Message: fmt.Sprintf("Topic %s is already served by client %s", t.Name, t.Publisher.Address()),
-		}
-	}
-
-	t.Publisher = client
-	log.Printf("Client %s Publishing from topic %s", client.Address(), t.Name)
-	return nil
 }
 
 func (t *Topic) Subscribe(client *Client) {

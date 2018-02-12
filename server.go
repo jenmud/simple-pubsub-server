@@ -116,16 +116,7 @@ func (s *Server) HandleSubscribeMsg(client *Client, msg []byte) error {
 	var subscribe messages.Subscribe
 
 	if !s.HasConnected(client) {
-		err = messages.NotConnected{
-			Tick:    fmt.Sprintf("%s", time.Now()),
-			Message: "Not connected, please first connect.",
-		}
-		output, err := xml.Marshal(err)
-		if err != nil {
-			return err
-		}
-
-		return client.Send(output)
+		return client.SendError("NotConnected", "Not connected, please first connect.")
 	}
 
 	if err := xml.Unmarshal(msg, &subscribe); err != nil {
@@ -136,17 +127,8 @@ func (s *Server) HandleSubscribeMsg(client *Client, msg []byte) error {
 		topic, ok := s.Topics[subscribe.Topic]
 
 		if !ok {
-			err = messages.NoPublishers{
-				Tick:    fmt.Sprintf("%s", time.Now()),
-				Message: fmt.Sprintf("There are no publishers for topic %s", subscribe.Topic),
-			}
-
-			output, err := xml.Marshal(err)
-			if err != nil {
-				return err
-			}
-
-			return client.Send(output)
+			msg := fmt.Sprintf("There are no publishers for topic %s", subscribe.Topic)
+			return client.SendError("NoPublishers", msg)
 		}
 
 		topic.Subscribe(client)
@@ -156,34 +138,23 @@ func (s *Server) HandleSubscribeMsg(client *Client, msg []byte) error {
 }
 
 func (s *Server) HandlePublishMsg(client *Client, msg []byte) error {
-	var err error
 	var publishMsg messages.Publish
 
 	if err := xml.Unmarshal(msg, &publishMsg); err != nil {
-
-		// Check if we already have a client publishing to the topic
-		if topic, ok := s.Topics[publishMsg.Topic]; !ok {
-			msg := fmt.Sprintf("Topic %s is already being published by client %s", topic.Name, topic.Publisher.Address())
-			output, err := xml.Marshal(
-				messages.AlreadyBeingPublished{
-					Tick:    fmt.Sprintf("%s", time.Now()),
-					Message: msg,
-				},
-			)
-
-			if err != nil {
-				return err
-			}
-
-			return client.Send(output)
-		}
-		This is not working!!!!!!
-		// Create a topic and make the client the publisher
-		topic := NewTopic(publishMsg.Topic, client)
-		return topic.SubscribePublisher(client)
+		return err
 	}
 
-	return err
+	// Check if we already have a client publishing to the topic
+	topic, ok := s.Topics[publishMsg.Topic]
+	if ok {
+		msg := fmt.Sprintf("Topic %s is already being published by client %s", topic.Name, topic.Publisher.Address())
+		return client.SendError("AlreadyBeingPublished", msg)
+	}
+
+	// Create a topic and make the client the publisher
+	topic = NewTopic(publishMsg.Topic, client)
+	s.Topics[topic.Name] = topic
+	return nil
 }
 
 func (s *Server) HandleDisconnectMsg(client *Client) error {
