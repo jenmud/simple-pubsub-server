@@ -18,6 +18,7 @@ func NewServer() *Server {
 		Clients:        make(map[string]*Client),
 		BroadcastChann: make(chan []byte),
 		Topics:         make(map[string]*Topic),
+		publishers:     make(map[string][]*Topic),
 	}
 
 	return &server
@@ -27,6 +28,7 @@ type Server struct {
 	Clients        map[string]*Client
 	BroadcastChann chan []byte
 	Topics         map[string]*Topic
+	publishers     map[string][]*Topic
 }
 
 func (s *Server) AddClient(client *Client) error {
@@ -96,7 +98,20 @@ func (s *Server) HandleConnectMsg(client *Client, msg []byte) error {
 		return err
 	}
 
-	welcomeMsg := messages.Welcome{Name: connMsg.Name, Address: client.Address(), Datetime: time.Now().String()}
+	count := 0
+	topics := make([]string, len(s.Topics))
+	for topic, _ := range s.Topics {
+		topics[count] = topic
+		count++
+	}
+
+	welcomeMsg := messages.Welcome{
+		Name:     connMsg.Name,
+		Address:  client.Address(),
+		Datetime: time.Now().String(),
+		Topics:   topics,
+	}
+
 	welcomeMsgBytes, err := xml.Marshal(welcomeMsg)
 	if err != nil {
 		log.Printf("(Client: %s) Welcome MSG marshal error: %s", client.Address(), err)
@@ -154,6 +169,21 @@ func (s *Server) HandlePublishMsg(client *Client, msg []byte) error {
 	// Create a topic and make the client the publisher
 	topic = NewTopic(publishMsg.Topic, client)
 	s.Topics[topic.Name] = topic
+	s.publishers[client.Address()] = append(s.publishers[client.Address()], topic)
+	return nil
+}
+
+func (s *Server) HandlePublisherDisconnect(client *Client) error {
+	log.Printf("Disconnecting publisher %s and closing any topics it has open", client.Address())
+	topics, ok := s.publishers[client.Address()]
+	if ok {
+		for _, topic := range topics {
+			topic.Close()
+			log.Printf("Removing topic %s", topic.Name)
+			delete(s.Topics, topic.Name)
+		}
+	}
+
 	return nil
 }
 
@@ -213,9 +243,16 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 				return err
 			}
 		case "disconnect":
+			if err := s.HandlePublisherDisconnect(client); err != nil {
+				return err
+			}
+
 			if err := s.HandleDisconnectMsg(client); err != nil {
 				return err
 			}
+		default:
+			topic, _ := s.Topics["blah"]
+			topic.Publish([]byte("This is a test publish"))
 		}
 	}
 
@@ -223,6 +260,7 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 }
 
 func (s *Server) HandleClientConnection(client *Client) {
+	defer s.HandlePublisherDisconnect(client)
 	defer s.RemoveClient(client)
 	log.Printf("New client connection from %s", client.Address())
 

@@ -35,3 +35,9 @@ func (t *Topic) Unsubscribe(client *Client) {
 	delete(t.Subscribers, client.Address())
 	log.Printf("Unsubscribed client %s from topic %s", client.Address(), t.Name)
 }
+
+func (t *Topic) Close() {
+	for _, client := range t.Subscribers {
+		t.Unsubscribe(client)
+	}
+}
