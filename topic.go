@@ -32,8 +32,10 @@ func (t *Topic) Subscribe(client *Client) {
 }
 
 func (t *Topic) Unsubscribe(client *Client) {
-	delete(t.Subscribers, client.Address())
-	log.Printf("Unsubscribed client %s from topic %s", client.Address(), t.Name)
+	if _, ok := t.Subscribers[client.Address()]; ok {
+		delete(t.Subscribers, client.Address())
+		log.Printf("Unsubscribed client %s from topic %s", client.Address(), t.Name)
+	}
 }
 
 func (t *Topic) Close() {

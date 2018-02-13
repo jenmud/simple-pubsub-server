@@ -44,10 +44,18 @@ func (s *Server) AddClient(client *Client) error {
 	return nil
 }
 
+func (s *Server) RemoveClientFromTopics(client *Client) {
+	// Run through all the topics unsubscribing shutting down client.
+	for _, topic := range s.Topics {
+		topic.Unsubscribe(client)
+	}
+}
+
 func (s *Server) RemoveClient(client *Client) error {
-	name := client.Address()
-	delete(s.Clients, name)
-	log.Printf("Registered clients %d", len(s.Clients))
+	if _, ok := s.Clients[client.Address()]; ok {
+		delete(s.Clients, client.Address())
+		log.Printf("Registered clients after client removed %d", len(s.Clients))
+	}
 	return nil
 }
 
@@ -173,10 +181,10 @@ func (s *Server) HandlePublishMsg(client *Client, msg []byte) error {
 	return nil
 }
 
-func (s *Server) HandlePublisherDisconnect(client *Client) error {
-	log.Printf("Disconnecting publisher %s and closing any topics it has open", client.Address())
+func (s *Server) HandlePublisherTopicClose(client *Client) error {
 	topics, ok := s.publishers[client.Address()]
 	if ok {
+		log.Printf("Closing publisher %s open topics", client.Address())
 		for _, topic := range topics {
 			topic.Close()
 			log.Printf("Removing topic %s", topic.Name)
@@ -191,12 +199,16 @@ func (s *Server) HandleDisconnectMsg(client *Client) error {
 	log.Printf("Client requested to disconnect, removing %s", client.Address())
 	var err error
 
-	disconnectTime := fmt.Sprintf("%s", time.Now())
+	// First remove clients for all subscribed topics
+	s.RemoveClientFromTopics(client)
+
+	// The remove the client completely
 	err = s.RemoveClient(client)
 	if err != nil {
 		return err
 	}
 
+	disconnectTime := fmt.Sprintf("%s", time.Now())
 	output, err := xml.Marshal(messages.Bye{Tick: disconnectTime})
 	if err != nil {
 		return err
@@ -243,10 +255,6 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 				return err
 			}
 		case "disconnect":
-			if err := s.HandlePublisherDisconnect(client); err != nil {
-				return err
-			}
-
 			if err := s.HandleDisconnectMsg(client); err != nil {
 				return err
 			}
@@ -257,7 +265,8 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 }
 
 func (s *Server) HandleClientConnection(client *Client) {
-	defer s.HandlePublisherDisconnect(client)
+	defer s.HandlePublisherTopicClose(client)
+	defer s.RemoveClientFromTopics(client)
 	defer s.RemoveClient(client)
 	log.Printf("New client connection from %s", client.Address())
 
