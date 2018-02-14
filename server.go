@@ -64,6 +64,11 @@ func (s *Server) HasConnected(client *Client) bool {
 	return ok
 }
 
+func (s *Server) IsPublisher(client *Client) bool {
+	_, ok := s.publishers[client.Address()]
+	return ok
+}
+
 func (s *Server) HandleBroadcasts() {
 	for {
 		msg := <-s.BroadcastChann
@@ -264,6 +269,17 @@ func (s *Server) Dispatch(client *Client, msg []byte) error {
 	return err
 }
 
+func (s *Server) PublishToTopics(client *Client, msg []byte) error {
+	if s.IsPublisher(client) {
+		for _, topic := range s.publishers[client.Address()] {
+			topic.Publish(msg)
+		}
+		return nil
+	} else {
+		return errors.New(fmt.Sprintf("Client %s is not a publisher", client.Address()))
+	}
+}
+
 func (s *Server) HandleClientConnection(client *Client) {
 	defer s.HandlePublisherTopicClose(client)
 	defer s.RemoveClientFromTopics(client)
@@ -276,6 +292,14 @@ func (s *Server) HandleClientConnection(client *Client) {
 			log.Printf("(Client: %s) Read error: %s", client.Address(), err)
 			return
 		}
+
+		// !! not sure how I am meant to do this !!
+		// !! if publishing, then all the other xml commands are not processed !!
+		// If the client is already a publisher, then just publish the message
+		// to all the topic the publish has.
+		// if s.IsPublisher(client) {
+		// 	s.PublishToTopics(client, msg)
+		// }
 
 		if err := s.Dispatch(client, msg); err != nil {
 			log.Printf("(Client: %s) Message parsing error: %s", client.Address(), err)
