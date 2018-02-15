@@ -84,3 +84,15 @@ Escape character is '^]'.
 ```bash
 <subscribe topic="demo" />
 ```
+
+
+Supported messages
+==================
+
+| Message        | Description                                      | Required |
+| -------------  |:------------------------------------------------:| --------:|
+| connect        | Connect and register the client with the server. | yes      |
+| ping           | Send a ping and receive a pong reply.            | no       |
+| subscribe      | Subscribe to a topic.                            | no       |
+| publish        | Register the client as a publisher of a topic.   | no       |
+| disconnect     | Disconnect and unregister client from the server | no       |
