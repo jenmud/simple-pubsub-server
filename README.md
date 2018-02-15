@@ -70,7 +70,7 @@ Now send the *publish* message with a topic name
 Example of subscribing/consuming
 --------------------------------
 
-With a client publish (see above), connect another client to the server
+With a client already publishing to a topic (see above), connect another client to the server
 
 ```bash
 $ telnet localhost 3003
