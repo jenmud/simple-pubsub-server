@@ -45,7 +45,7 @@ Example of publishing
 With the server running and accepting connections
 
 ```bash
-$ ./myBetex
+$ ./myPubSub
 2018/02/15 21:15:39 Server running and accepting connections on port 3003
 ```
 
