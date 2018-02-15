@@ -1,5 +1,5 @@
-myBetex
-=======
+PubSub Server
+=============
 
 This is a quick mockup of a type of pub/sub server. It is a very very simple implementation of a basic publish and subscribe service.
 
