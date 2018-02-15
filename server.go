@@ -297,9 +297,9 @@ func (s *Server) HandleClientConnection(client *Client) {
 		// !! if publishing, then all the other xml commands are not processed !!
 		// If the client is already a publisher, then just publish the message
 		// to all the topic the publish has.
-		// if s.IsPublisher(client) {
-		// 	s.PublishToTopics(client, msg)
-		// }
+		if s.IsPublisher(client) {
+			s.PublishToTopics(client, msg)
+		}
 
 		if err := s.Dispatch(client, msg); err != nil {
 			log.Printf("(Client: %s) Message parsing error: %s", client.Address(), err)
